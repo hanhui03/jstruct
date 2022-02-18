@@ -7,7 +7,7 @@ It can be run with the following command:
 + JSRE
 
 ``` bash
-javascript -a conf.json
+javascript -a conf.json jstruct.js
 ```
 
 + NodeJS
