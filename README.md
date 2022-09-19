@@ -30,7 +30,25 @@ An example configuration file is as follows:
       { "key": "boo", "type": "bool",   "req": false },
       { "key": "str", "type": "char *", "req": true },
       { "key": "arr", "type": "double", "req": true , "array": 4, "mlen": 2, "min": 1 },
-      { "key": "han", "type": "float",  "req": false  }
+      { "key": "han", "type": "float",  "req": false  },
+      { "key": "st1", "type": "struct", "req": true, "name": "struct1" },
+      { "key": "st2", "type": "struct", "req": true, "name": "struct2" }
+    ],
+    "substruct": [
+      {
+        "name": "struct1",
+        "member": [
+          { "key": "foo", "type": "int",    "req": true, "min": 1, "max": 128, "near": true },
+          { "key": "boo", "type": "bool",   "req": false },
+          { "key": "st2", "type": "struct", "req": true, "name": "struct2" }
+        ]
+      }, {
+        "name": "struct2",
+        "member": [
+          { "key": "bar", "type": "int",    "req": true, "max": 128 },
+          { "key": "str", "type": "char *", "req": true }
+        ]
+      }
     ]
   }
 }
@@ -64,6 +82,13 @@ Struct member array. Each structure member is an object, which is used to descri
 
 **This field is required**.
 
+## struct.substruct
++ *{Array}*
+
+Substruct array. Each substructure is an object. In the structure data nesting scenario, this field needs to be defined, same as `struct` rule.
+
+**This field is optional**.
+
 # Structure Member
 Each structure member is called an `item`, this `item` can have the following description.
 
@@ -78,7 +103,7 @@ The name of the member of this structure, the member name in the generated struc
 + *{String}*
 
 The type of the member of this structure, the accepted types include:
-`'bool'`, `'int8_t'`, `'int16_t'`, `'int32_t'`, `'uint8_t'`, `'uint16_t'`, `'uint32_t'`, `'int'`, `'long'`, `'float'`, `'double'`, `'char *'`.
+`'bool'`, `'int8_t'`, `'int16_t'`, `'int32_t'`, `'uint8_t'`, `'uint16_t'`, `'uint32_t'`, `'int'`, `'long'`, `'float'`, `'double'`, `'char *'`, `'struct'`.
 
 **This field is required**.
 
@@ -121,6 +146,13 @@ If this structure member is an array, this field indicates the size of the array
 + *{Integer}*
 
 If the structure member is an array, this field indicates the minimum number of members of the corresponding array member during JSON parsing. If the length of the array is less than this field, the parsing fails and an error is returned.
+
+**This field is optional**.
+
+## item.name
++ *{String}*
+
+If the structure member type is `struct`, this field is required. This field is used to match `name` in the `struct.substruct`.
 
 **This field is optional**.
 
