@@ -8,25 +8,7 @@
 			{ "key": "boo", "type": "bool",   "req": false },
 			{ "key": "str", "type": "char *", "req": true },
 			{ "key": "arr", "type": "double", "req": true , "array": 4, "mlen": 2, "min": 1 },
-			{ "key": "han", "type": "float",  "req": false },
-			{ "key": "st1", "type": "struct", "req": true, "name": "struct1" },
-			{ "key": "st2", "type": "struct", "req": true, "name": "struct2" }
-		],
-		"substruct": [
-			{
-				"name": "struct1",
-				"member": [
-					{ "key": "foo", "type": "int",    "req": true, "min": 1, "max": 128, "near": true },
-					{ "key": "boo", "type": "bool",   "req": false },
-					{ "key": "st2", "type": "struct", "req": true, "name": "struct2" }
-				]
-			}, {
-				"name": "struct2",
-				"member": [
-					{ "key": "bar", "type": "int",    "req": true, "max": 128 },
-					{ "key": "str", "type": "char *", "req": true }
-				]
-			}
+			{ "key": "han", "type": "float",  "req": false }
 		]
 	}
 }

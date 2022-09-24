@@ -74,7 +74,6 @@ exports.H_HEADER =
 
 #include <stdint.h>
 #include <stdbool.h>
-#include "cJSON.h"
 `;
 
 /*

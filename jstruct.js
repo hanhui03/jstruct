@@ -8,7 +8,7 @@
  *
  * Author: Han.hui <hanhui@acoinfo.com>
  *
- * Version: 1.0.2
+ * Version: 1.0.3
  *
  */
 
@@ -71,7 +71,6 @@ function check_type(type) {
  * Generate structure define
  */
 function gen_struct_def(struct, structlist, issub) {
-
 	if (struct_names.indexOf(struct.name) >= 0) {
 		return '';
 	}
@@ -80,8 +79,7 @@ function gen_struct_def(struct, structlist, issub) {
 	var body = '';
 	var subbody = '';
 	var interval = '';
-
-	if(struct.hasOwnProperty("substruct")) {
+	if (struct.hasOwnProperty("substruct")) {
 		for (var itemst of structlist) {
 			subbody += gen_struct_def(itemst, structlist, true);
 		}
@@ -109,7 +107,7 @@ function gen_struct_def(struct, structlist, issub) {
 				body += `\t${item.type}${interval}${item.key}[${item.array}];\n`;
 			}
 		} else {
-			if(item.type === 'struct') {
+			if (item.type === 'struct') {
 				body += `\t${item.type}${interval}${item.name}${interval}${item.key};\n`;
 			} else {
 				body += `\t${item.type}${interval}${item.key};\n`;
@@ -117,6 +115,7 @@ function gen_struct_def(struct, structlist, issub) {
 		}
 	}
 	struct_names.push(struct.name);
+
 	if (issub) {
 		return `${subbody}\nstruct ${struct.name} {\n${body}};\n`;
 	} else {
@@ -140,9 +139,7 @@ ${gen_struct_def(CONF.struct, CONF.struct.substruct ? CONF.struct.substruct:'', 
  * Generate function define
  */
 function gen_func_def(structlist) {
-
 	var body = '';
-
 	for (var itemst of structlist) {
 		if (struct_names.indexOf(itemst.name) >= 0) {
 			continue;
@@ -159,10 +156,8 @@ static cJSON *${itemst.name}_json_object_stringify(const struct ${itemst.name} *
  * Generate function
  */
 function gen_sub_func(FUNC) {
-	var body = FUNC.FUNCTION_OBJECT_DECLARATION;
-	body += `
-${gen_func_def(CONF.struct.substruct ? CONF.struct.substruct:'')}\n`;
-	return body;
+	var defs = gen_func_def(CONF.struct.substruct ? CONF.struct.substruct:'');
+	return defs ? `${FUNC.FUNCTION_OBJECT_DECLARATION}\n${defs}\n` : '';
 }
 
 /*
@@ -228,7 +223,7 @@ function gen_assign(item, target, functype, indentation) {
 ${indentation}${gen_range_assign(item, 'v', indentation)}
 ${indentation}${target} = (${item.type})v;`;
 	} else if (functype === 'Object') {
-		if(!item.name) {
+		if (!item.name) {
 			throw new Error('Structure "struct" type member must have "name" field!');
 		}
 		var assign = `if (!${item.name}_json_object_parse(&(${target}), item)) {
@@ -300,6 +295,17 @@ function gen_deserial(item, functype) {
 }
 
 /*
+ * Generate error collect
+ */
+function gen_error(issub) {
+	var jdel = issub ? '' : 'cJSON_Delete(json);\n\t';
+	var error = `\n
+error:
+	${jdel}return	(false);`;
+	return error;
+}
+
+/*
  * Generate json_parse()
  */
 function gen_json_parse(FUNC) {
@@ -331,6 +337,7 @@ function gen_json_parse(FUNC) {
 				break;
 		}
 	}
+	var error = deserial.includes('goto\t') ? gen_error(false) : '';
 
 	body += `
 {
@@ -350,11 +357,7 @@ function gen_json_parse(FUNC) {
 	}
 ${deserial}
 	des->json = (void *)json;
-	return	(true);
-
-error:
-	cJSON_Delete(json);
-	return	(false);
+	return	(true);${error}
 }\n
 `;
 	return body;
@@ -392,6 +395,7 @@ function gen_json_object_parse(struct) {
 				break;
 		}
 	}
+	var error = deserial.includes('goto\t') ? gen_error(true) : '';
 
 	body += `
 /*
@@ -413,10 +417,7 @@ static bool ${struct.name}_json_object_parse (struct ${struct.name} *des, cJSON 
 		return	(false);
 	}
 ${deserial}
-	return	(true);
-
-error:
-	return	(false);
+	return	(true);${error}
 }\n`;
 	return body;
 }
@@ -670,7 +671,7 @@ function c_merge(FILE, FUNC) {
 	body += gen_parse_free(FUNC);
 	body += gen_json_stringify(FUNC);
 	body += gen_stringify_free(FUNC);
-	if(CONF.struct.hasOwnProperty("substruct")) {
+	if (CONF.struct.hasOwnProperty("substruct")) {
 		for (var itemst of CONF.struct.substruct) {
 			if (struct_names.indexOf(itemst.name) >= 0) {
 				continue;
@@ -703,14 +704,15 @@ function h_merge(FILE) {
 * Output
 */
 function output() {
-
 	var output = undefined;
 	output = c_merge(FILE, FUNC);
 	fs.writeFile(`./${CONF.name}_jstruct.c`, output, () => {});
 	output = h_merge(FILE);
 	fs.writeFile(`./${CONF.name}_jstruct.h`, output, () => {});
 	console.info(`File: ${CONF.name}_jstruct.c ${CONF.name}_jstruct.h generated!`);
-
 }
 
+/*
+ * Go!
+ */
 output();
