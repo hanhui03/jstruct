@@ -27,20 +27,39 @@ var struct_names = [];
  * Load config
  */
 if (typeof __filename === 'string') {
-	var ARGUMENT = process.argv[2];
+	var config = process.argv[2];
+} else if (typeof ARGUMENT === 'string') {
+	var config = ARGUMENT;
+} else {
+	var config = 'conf.json';
 }
-if (typeof ARGUMENT !== 'string') {
-	ARGUMENT = 'conf.json';
+
+/*
+ * YAML preprocessing
+ */
+if (config.endsWith('.yaml')) {
+	try {
+		var YAML = require('yaml');
+	} catch {
+		console.error('YAML module not found, please install using: npm i yaml');
+		process.exit(-1);
+	}
+	if (typeof fs.load === 'function') {
+		var CONF = YAML.parse(fs.readFile(config, { encoding: 'utf-8' }));
+	} else {
+		var CONF = YAML.parse(fs.readFileSync(config, { encoding: 'utf-8' }));
+	}
+} else {
+	if (typeof fs.load === 'function') {
+		var CONF = fs.load(config);
+	} else {
+		var CONF = JSON.parse(fs.readFileSync(config, { encoding: 'utf-8' }));
+	}
 }
 
 /*
  * Config Object
  */
-if (typeof fs.load === 'function') {
-	var CONF = fs.load(ARGUMENT);
-} else {
-	var CONF = JSON.parse(fs.readFileSync(ARGUMENT, { encoding: 'utf-8' }));
-}
 if (CONF) {
 	global.CONF = CONF;
 } else {

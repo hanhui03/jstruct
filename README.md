@@ -16,7 +16,7 @@ javascript -a conf.json jstruct.js
 node jstruct.js conf.json
 ```
 
-# Configuration File
+# JSON Format Configuration File
 An example configuration file is as follows:
 
 ``` json
@@ -53,6 +53,49 @@ An example configuration file is as follows:
   }
 }
 ```
+
+# YAML Format Configuration File
+An example configuration file is as follows:
+
+``` yaml
+name: test
+struct:
+  name: hello
+  member:
+    -
+      key: foo
+      type: int
+      req: true
+      min: 1
+      max: 128
+      near: true
+    -
+      key: bar
+      type: int
+      req: false
+    -
+      key: str1
+      type: struct
+      name: struct1
+  substruct:
+    -
+      name: struct1
+      member:
+        -
+          key: foo
+          type: int
+          req: true
+    -
+      name: struct2
+      member:
+        -
+          key: bar
+          type: int
+          req: true
+# ...
+```
+
+When using a configuration file in YAML format in a NodeJS environment, you must first execute `npm i yaml` to install the yaml parsing library.
 
 ## name
 + *{String}*
