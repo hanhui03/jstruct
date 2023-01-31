@@ -17,11 +17,18 @@ var process = require('process');
 
 /* Supported types include */
 const STRUCT_TYPES = [
-	'bool', 'int8_t', 'int16_t', 'int32_t', 'uint8_t', 'uint16_t', 'uint32_t', 'int', 'long', 'float', 'double', 'char *', 'struct'
+	'bool', 'int8_t', 'int16_t', 'int32_t', 'uint8_t', 'uint16_t', 'uint32_t', 'int', 'long', 'float', 'double', 'char *', 'struct', 'union'
+];
+/* Int Number types include */
+const INT_NUMBER_TYPES = [
+	'int8_t', 'int16_t', 'int32_t', 'uint8_t', 'uint16_t', 'uint32_t', 'int'
 ];
 
 /* Struct arry */
 var struct_names = [];
+
+/* Union arry */
+var union_names = [];
 
 /*
  * Load config
@@ -87,6 +94,234 @@ function check_type(type) {
 }
 
 /*
+ * Check int number type
+ */
+function check_int_number_type(type) {
+	if (!INT_NUMBER_TYPES.includes(type)) {
+		throw new TypeError('Union type error, legal includes:', JSON.stringify(INT_NUMBER_TYPES));
+	}
+}
+
+/*
+ * Check number type bits
+ */
+function check_bit_sum(type, bit) {
+	var number = 0;
+	switch (type) {
+		case 'int8_t':
+		case 'uint8_t':
+			number = 8;
+			break;
+		case 'int16_t':
+		case 'uint16_t':
+			number = 16;
+			break;
+		case 'int32_t':
+		case 'uint32_t':
+		case 'int':
+			number = 32;
+			break;
+		default:
+			break;
+	}
+	if (number !== bit) {
+		throw new TypeError(`${type} type is ${number} bits, but your total is ${bit} bits!`);
+	}
+}
+
+/*
+ * Generate union 'protocol' define
+ */
+function gen_union_protocol1_def(itemun) {
+	var body = '';
+	var big_endian_body = '';
+	var little_endian_body = '';
+	var interval = ' ';
+	var member = itemun.member;
+	var bit = 0;
+	if (!itemun.type || !itemun.key || !itemun.struct) {
+		throw new Error('Protocol "protocol1" must include "type"、"key" and "struct" field!');
+	}
+	for (var item of member) {
+		if (item.key === 'json') {
+			throw new Error('Union members are not allowed to be named "json"!');
+		}
+		if (item.array) {
+			throw new Error('Union members are not allowed "array" field!');
+		}
+		if (!item.bit) {
+			throw new Error('Union members must include "bit" field!');
+		}
+		check_int_number_type(item.type);
+		
+		big_endian_body += `\t\t${item.type}${interval}${item.key}\t:${item.bit};\n`;
+		little_endian_body = `\t\t${item.type}${interval}${item.key}\t:${item.bit};\n` + little_endian_body;
+		bit += item.bit;
+	}
+	check_bit_sum(itemun.type, bit);
+	body = `#if BYTE_ORDER == BIG_ENDIAN\n${big_endian_body}#else\n${little_endian_body}#endif\n`
+	return `\nunion${interval}${itemun.name}\n{\n\t${itemun.type}${interval}${itemun.key};\n\tstruct\n\t{\n${body}\t}${itemun.struct};\n};\n`;
+}
+
+/*
+ * Generate json_stringify()
+ */
+function gen_protocol1_json_object_stringify(union) {
+	var body = '';
+	var member = union.member;
+	var serial = '';
+	for (var item of member) {
+		switch (item.type) {
+			case 'int8_t':
+			case 'int16_t':
+			case 'int32_t':
+			case 'uint8_t':
+			case 'uint16_t':
+			case 'uint32_t':
+			case 'int':
+				serial += gen_protocol1_serial(item, union.struct, 'Number');
+				break;
+			}
+	}
+
+	body += `
+/*
+ * Serialize the union '${union.name}' into a JSON string
+ */
+static cJSON *${union.name}_json_object_stringify (const union ${union.name} *des)
+{
+	int i;
+	cJSON *json, *item;
+
+	(void)i;
+	(void)item;
+
+	if (!des) {
+		return	(NULL);
+	}
+
+	json = cJSON_CreateObject();
+	if (!json) {
+		return	(NULL);
+	}
+${serial}
+	return	(json);
+
+error:
+	cJSON_Delete(json);
+	return	(NULL);
+}\n`;
+	return body;
+}
+
+/*
+ * Generate protocol1_json_object_parse()
+ */
+function gen_protocol1_json_object_parse(union) {
+	var body = '';
+	var member = union.member;
+	var deserial = '';
+	for (var item of member) {
+		switch (item.type) {
+			case 'int8_t':
+			case 'int16_t':
+			case 'int32_t':
+			case 'uint8_t':
+			case 'uint16_t':
+			case 'uint32_t':
+			case 'int':
+				deserial += gen_protocol1_deserial(item, union.struct, 'Number');
+				break;
+		}
+	}
+	var error = deserial.includes('goto\t') ? gen_error(true) : '';
+
+	body += `
+/*
+ * Deserialize the JSON Object into a union '${union.name}'
+ */
+static bool ${union.name}_json_object_parse (union ${union.name} *des, cJSON *json)
+{
+	int i, sza;
+	register double v;
+	cJSON *item;
+
+	(void)i;
+	(void)v;
+	(void)sza;
+	(void)item;
+
+	if (!des || !json) {
+		return	(false);
+	}
+${deserial}
+	return	(true);${error}
+}\n`;
+	return body;
+}
+
+/*
+ * Generate protocol1 serial
+ */
+function gen_protocol1_serial(item, struct, functype) {
+	var value = `des->${struct}.${item.key}`;
+	var serial = `
+	item = cJSON_Create${functype}(${value});
+	if (!item) {
+		goto	error;
+	}
+	if (!cJSON_AddItemToObject(json, "${item.key}", item)) {
+		cJSON_Delete(item);
+		goto	error;
+	}\n`;
+	return serial;
+}
+
+/*
+ * Generate protocol1 deserial
+ */
+function gen_protocol1_deserial(item, struct, functype) {
+	if (item.req) {
+		var failed = ` else {
+		goto	error;
+	}`;
+	} else {
+		var failed = '';
+	}
+	var deserial = `
+	item = cJSON_GetObjectItem(json, "${item.key}");
+	if (item && cJSON_Is${functype}(item)) {
+		${gen_assign(item, `des->${struct}.${item.key}`, functype, '\t\t')}
+	}${failed}\n`;
+	return deserial;
+}
+
+/*
+ * Generate union define
+ */
+function gen_union_def(unionlist) {
+	var body = '';
+	if (unionlist) {
+		for (var itemun of unionlist) {
+			if (union_names.indexOf(itemun.name) >= 0) {
+				return '';
+			}
+			switch (itemun.protocol) {
+				case 'protocol1':
+					body += gen_union_protocol1_def(itemun);
+					break;
+				default:
+					console.info(`Protocol '${itemun.protocol}' is not support!`);
+					break;
+			}
+			union_names.push(itemun.name);
+		}
+		// body = body.substring(0, body.length - 1);
+	}
+	return `${body}`;
+}
+
+/*
  * Generate structure define
  */
 function gen_struct_def(struct, structlist, issub) {
@@ -120,13 +355,13 @@ function gen_struct_def(struct, structlist, issub) {
 		}
 		interval = item.type.endsWith('*') ? '' : ' ';
 		if (item.array) {
-			if (item.type === 'struct') {
+			if (item.type === 'struct' || item.type === 'union') {
 				body += `\t${item.type}${interval}${item.name}${interval}${item.key}[${item.array}];\n`;
 			} else {
 				body += `\t${item.type}${interval}${item.key}[${item.array}];\n`;
 			}
 		} else {
-			if (item.type === 'struct') {
+			if (item.type === 'struct' || item.type === 'union') {
 				body += `\t${item.type}${interval}${item.name}${interval}${item.key};\n`;
 			} else {
 				body += `\t${item.type}${interval}${item.key};\n`;
@@ -149,7 +384,7 @@ function gen_struct() {
 	return `
 #ifndef STRUCT_${CONF.name.toUpperCase()}_DEFINED
 #define STRUCT_${CONF.name.toUpperCase()}_DEFINED
-${gen_struct_def(CONF.struct, CONF.struct.substruct ? CONF.struct.substruct:'', false)}
+${gen_union_def(CONF.struct.subunion ? CONF.struct.subunion:'')}${gen_struct_def(CONF.struct, CONF.struct.substruct ? CONF.struct.substruct:'', false)}
 #endif /* STRUCT_${CONF.name.toUpperCase()}_DEFINED */
 `;
 }
@@ -157,8 +392,18 @@ ${gen_struct_def(CONF.struct, CONF.struct.substruct ? CONF.struct.substruct:'', 
 /*
  * Generate function define
  */
-function gen_func_def(structlist) {
+function gen_func_def(structlist, unionlist) {
 	var body = '';
+	for (var itemun of unionlist) {
+		if (union_names.indexOf(itemun.name) >= 0) {
+			continue;
+		}
+		body += 
+`static bool   ${itemun.name}_json_object_parse(union ${itemun.name} *, cJSON *);
+static cJSON *${itemun.name}_json_object_stringify(const union ${itemun.name} *);\n`;
+		union_names.push(itemun.name);
+	}
+
 	for (var itemst of structlist) {
 		if (struct_names.indexOf(itemst.name) >= 0) {
 			continue;
@@ -168,6 +413,7 @@ function gen_func_def(structlist) {
 static cJSON *${itemst.name}_json_object_stringify(const struct ${itemst.name} *);\n`;
 		struct_names.push(itemst.name);
 	}
+
 	return `${body}`;
 }
 
@@ -175,7 +421,7 @@ static cJSON *${itemst.name}_json_object_stringify(const struct ${itemst.name} *
  * Generate function
  */
 function gen_sub_func(FUNC) {
-	var defs = gen_func_def(CONF.struct.substruct ? CONF.struct.substruct:'');
+	var defs = gen_func_def(CONF.struct.substruct ? CONF.struct.substruct:'', CONF.struct.subunion ? CONF.struct.subunion:'');
 	return defs ? `${FUNC.FUNCTION_OBJECT_DECLARATION}\n${defs}\n` : '';
 }
 
@@ -352,6 +598,7 @@ function gen_json_parse(FUNC) {
 				deserial += gen_deserial(item, 'String');
 				break;
 			case 'struct':
+			case 'union':
 				deserial += gen_deserial(item, 'Object');
 				break;
 		}
@@ -409,6 +656,7 @@ function gen_json_object_parse(struct) {
 			case 'char *':
 				deserial += gen_deserial(item, 'String');
 				break;
+			case 'union':
 			case 'struct':
 				deserial += gen_deserial(item, 'Object');
 				break;
@@ -565,6 +813,7 @@ function gen_json_stringify(FUNC) {
 				serial += gen_serial(item, 'String');
 				break;
 			case 'struct':
+			case 'union':
 				serial += gen_serial(item, 'Object');
 				break;
 		}
@@ -629,6 +878,7 @@ function gen_json_object_stringify(struct) {
 				serial += gen_serial(item, 'String');
 				break;
 			case 'struct':
+			case 'union':
 				serial += gen_serial(item, 'Object');
 				break;
 			}
@@ -685,11 +935,29 @@ function gen_stringify_free(FUNC) {
 function c_merge(FILE, FUNC) {
 	var body = FILE.C_HEADER;
 	body += gen_sub_func(FUNC);
+	union_names = [];
 	struct_names = [];
 	body += gen_json_parse(FUNC);
 	body += gen_parse_free(FUNC);
 	body += gen_json_stringify(FUNC);
 	body += gen_stringify_free(FUNC);
+	if (CONF.struct.hasOwnProperty("subunion")) {
+		for (var itemun of CONF.struct.subunion) {
+			if (union_names.indexOf(itemun.name) >= 0) {
+				continue;
+			}
+			switch (itemun.protocol) {
+				case 'protocol1':
+					body += gen_protocol1_json_object_parse(itemun);
+					body += gen_protocol1_json_object_stringify(itemun);
+					break;
+				default:
+					console.info(`Protocol '${itemun.protocol}' is not support!`);
+					break;
+			}
+			union_names.push(itemun.name);
+		}
+	}
 	if (CONF.struct.hasOwnProperty("substruct")) {
 		for (var itemst of CONF.struct.substruct) {
 			if (struct_names.indexOf(itemst.name) >= 0) {
@@ -700,6 +968,7 @@ function c_merge(FILE, FUNC) {
 			struct_names.push(itemst.name);
 		}
 	}
+	union_names = [];
 	struct_names = [];
 	body += FILE.C_FOOTER;
 	return body;
@@ -711,6 +980,7 @@ function c_merge(FILE, FUNC) {
 function h_merge(FILE) {
 	var body = FILE.H_HEADER;
 	body += gen_struct();
+	union_names = [];
 	struct_names = [];
 	body += FILE.H_CPP_START;
 	body += FILE.H_BODY;
