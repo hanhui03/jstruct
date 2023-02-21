@@ -316,7 +316,6 @@ function gen_union_def(unionlist) {
 			}
 			union_names.push(itemun.name);
 		}
-		// body = body.substring(0, body.length - 1);
 	}
 	return `${body}`;
 }
