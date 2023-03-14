@@ -35,7 +35,7 @@ exports.C_HEADER =
 
 #include <stdlib.h>
 #include <string.h>
-#include "cJSON.h"
+#include "yyjson.h"
 #include "${CONF.name}_jstruct.h"
 
 `;
@@ -72,6 +72,7 @@ exports.H_HEADER =
 #ifndef ${CONF.name.toUpperCase()}_JSTRUCT_H
 #define ${CONF.name.toUpperCase()}_JSTRUCT_H
 
+#include <stddef.h>
 #include <stdint.h>
 #include <stdbool.h>
 `;

@@ -147,10 +147,10 @@ function gen_struct_def(struct, structlist, issub) {
  */
 function gen_struct() {
 	return `
-#ifndef STRUCT_${CONF.name.toUpperCase()}_DEFINED
-#define STRUCT_${CONF.name.toUpperCase()}_DEFINED
+#ifndef STRUCT_${CONF.struct.name.toUpperCase()}_DEFINED
+#define STRUCT_${CONF.struct.name.toUpperCase()}_DEFINED
 ${gen_struct_def(CONF.struct, CONF.struct.substruct ? CONF.struct.substruct:'', false)}
-#endif /* STRUCT_${CONF.name.toUpperCase()}_DEFINED */
+#endif /* STRUCT_${CONF.struct.name.toUpperCase()}_DEFINED */
 `;
 }
 
@@ -164,8 +164,8 @@ function gen_func_def(structlist) {
 			continue;
 		}
 		body += 
-`static bool   ${itemst.name}_json_object_parse(struct ${itemst.name} *, cJSON *);
-static cJSON *${itemst.name}_json_object_stringify(const struct ${itemst.name} *);\n`;
+`static bool            ${itemst.name}_json_object_parse(yyjson_val *, struct ${itemst.name} *);
+static yyjson_mut_val *${itemst.name}_json_object_stringify(yyjson_mut_doc *, const struct ${itemst.name} *);\n`;
 		struct_names.push(itemst.name);
 	}
 	return `${body}`;
@@ -232,24 +232,27 @@ function gen_array_min_len_check(item) {
 	return check;
 }
 
+/* Number functype */
+const numfuncs = new Set(['int', 'uint', 'real']);
+
 /*
  * Generate assign
  */
 function gen_assign(item, target, functype, indentation) {
-	if (functype === 'Number' && 
+	if (numfuncs.has(functype) && 
 		(typeof item.min === 'number' || typeof item.max === 'number')) {
-		var assign = `v = cJSON_GetNumberValue(item);
+		var assign = `v = yyjson_get_real(item);
 ${indentation}${gen_range_assign(item, 'v', indentation)}
 ${indentation}${target} = (${item.type})v;`;
-	} else if (functype === 'Object') {
+	} else if (functype === 'obj') {
 		if (!item.name) {
 			throw new Error('Structure "struct" type member must have "name" field!');
 		}
-		var assign = `if (!${item.name}_json_object_parse(&(${target}), item)) {
+		var assign = `if (!${item.name}_json_object_parse(item, &(${target}))) {
 ${indentation}	goto	error;
 ${indentation}}`;
 	} else {
-		var assign = `${target} = (${item.type})cJSON_Get${functype}Value(item);`;
+		var assign = `${target} = (${item.type})yyjson_get_${functype}(item);`;
 	}
 	return assign;
 }
@@ -266,13 +269,15 @@ function gen_array_deserial(item, functype) {
 		var failed = '';
 	}
 	var deserial = `
-	array = cJSON_GetObjectItem(json, "${item.key}");
-	if (cJSON_IsArray(array)) {
-		sza = cJSON_GetArraySize(array);
+	array = yyjson_obj_get(val, "${item.key}");
+	if (array && yyjson_is_arr(array)) {
+		sza = yyjson_arr_size(array);
 		${gen_array_min_len_check(item)}sza = sza > ${item.array} ? ${item.array} : sza;
-		for (i = 0; i < sza; i++) {
-			item = cJSON_GetArrayItem(array, i);
-			if (cJSON_Is${functype}(item)) {
+		yyjson_arr_foreach(array, i, max, item) {
+			if (i >= sza) {
+				break;
+			}
+			if (yyjson_is_${functype}(item)) {
 				${gen_assign(item, `des->${item.key}[i]`, functype, '\t\t\t\t')}
 			} else {
 				goto	error;
@@ -294,8 +299,8 @@ function gen_item_deserial(item, functype) {
 		var failed = '';
 	}
 	var deserial = `
-	item = cJSON_GetObjectItem(json, "${item.key}");
-	if (item && cJSON_Is${functype}(item)) {
+	item = yyjson_obj_get(val, "${item.key}");
+	if (item && yyjson_is_${functype}(item)) {
 		${gen_assign(item, `des->${item.key}`, functype, '\t\t')}
 	}${failed}\n`;
 	return deserial;
@@ -305,19 +310,14 @@ function gen_item_deserial(item, functype) {
  * Generate deserial
  */
 function gen_deserial(item, functype) {
-	if (item.array) {
-		var deserial = gen_array_deserial(item, functype);
-	} else {
-		var deserial = gen_item_deserial(item, functype);
-	}
-	return deserial;
+	return item.array ? gen_array_deserial(item, functype) : gen_item_deserial(item, functype);
 }
 
 /*
  * Generate error collect
  */
 function gen_error(issub) {
-	var jdel = issub ? '' : 'cJSON_Delete(json);\n\t';
+	var jdel = issub ? '' : 'yyjson_doc_free(doc);\n\t';
 	var error = `\n
 error:
 	${jdel}return	(false);`;
@@ -333,49 +333,57 @@ function gen_json_parse(FUNC) {
 	var deserial = '';
 	for (var item of member) {
 		switch (item.type) {
-			case 'bool':
-				deserial += gen_deserial(item, 'Bool');
-				break;
-			case 'int8_t':
-			case 'int16_t':
-			case 'int32_t':
-			case 'uint8_t':
-			case 'uint16_t':
-			case 'uint32_t':
-			case 'int':
-			case 'long':
-			case 'float':
-			case 'double':
-				deserial += gen_deserial(item, 'Number');
-				break;
-			case 'char *':
-				deserial += gen_deserial(item, 'String');
-				break;
-			case 'struct':
-				deserial += gen_deserial(item, 'Object');
-				break;
+		case 'bool':
+			deserial += gen_deserial(item, 'bool');
+			break;
+		case 'int':
+		case 'long':
+		case 'int8_t':
+		case 'int16_t':
+		case 'int32_t':
+			deserial += gen_deserial(item, 'int');
+			break;
+		case 'uint8_t':
+		case 'uint16_t':
+		case 'uint32_t':
+			deserial += gen_deserial(item, 'uint');
+			break;
+		case 'float':
+		case 'double':
+			deserial += gen_deserial(item, 'real');
+			break;
+		case 'char *':
+			deserial += gen_deserial(item, 'str');
+			break;
+		case 'struct':
+			deserial += gen_deserial(item, 'obj');
+			break;
 		}
 	}
 	var error = deserial.includes('goto\t') ? gen_error(false) : '';
 
 	body += `
 {
-	int i, sza;
+	size_t i, max, sza;
 	register double v;
-	cJSON *json, *item, *array;
+	yyjson_doc *doc;
+	yyjson_val *val, *item, *array;
 
 	(void)i;
 	(void)v;
+	(void)max;
 	(void)sza;
 	(void)item;
 	(void)array;
 
-	json = cJSON_ParseWithLength(str, len);
-	if (!json) {
+	doc = yyjson_read(str, len, YYJSON_READ_NOFLAG);
+	if (!doc) {
 		return	(false);
+	} else {
+		val = yyjson_doc_get_root(doc);
 	}
 ${deserial}
-	des->json = (void *)json;
+	des->json = (void *)doc;
 	return	(true);${error}
 }\n
 `;
@@ -391,27 +399,31 @@ function gen_json_object_parse(struct) {
 	var deserial = '';
 	for (var item of member) {
 		switch (item.type) {
-			case 'bool':
-				deserial += gen_deserial(item, 'Bool');
-				break;
-			case 'int8_t':
-			case 'int16_t':
-			case 'int32_t':
-			case 'uint8_t':
-			case 'uint16_t':
-			case 'uint32_t':
-			case 'int':
-			case 'long':
-			case 'float':
-			case 'double':
-				deserial += gen_deserial(item, 'Number');
-				break;
-			case 'char *':
-				deserial += gen_deserial(item, 'String');
-				break;
-			case 'struct':
-				deserial += gen_deserial(item, 'Object');
-				break;
+		case 'bool':
+			deserial += gen_deserial(item, 'bool');
+			break;
+		case 'int':
+		case 'long':
+		case 'int8_t':
+		case 'int16_t':
+		case 'int32_t':
+			deserial += gen_deserial(item, 'int');
+			break;
+		case 'uint8_t':
+		case 'uint16_t':
+		case 'uint32_t':
+			deserial += gen_deserial(item, 'uint');
+			break;
+		case 'float':
+		case 'double':
+			deserial += gen_deserial(item, 'real');
+			break;
+		case 'char *':
+			deserial += gen_deserial(item, 'str');
+			break;
+		case 'struct':
+			deserial += gen_deserial(item, 'obj');
+			break;
 		}
 	}
 	var error = deserial.includes('goto\t') ? gen_error(true) : '';
@@ -420,19 +432,20 @@ function gen_json_object_parse(struct) {
 /*
  * Deserialize the JSON Object into a substructure '${struct.name}'
  */
-static bool ${struct.name}_json_object_parse (struct ${struct.name} *des, cJSON *json)
+static bool ${struct.name}_json_object_parse (yyjson_val *val, struct ${struct.name} *des)
 {
-	int i, sza;
+	size_t i, max, sza;
 	register double v;
-	cJSON *item, *array;
+	yyjson_val *item, *array;
 
 	(void)i;
 	(void)v;
+	(void)max;
 	(void)sza;
 	(void)item;
 	(void)array;
 
-	if (!des || !json) {
+	if (!val || !des) {
 		return	(false);
 	}
 ${deserial}
@@ -449,7 +462,7 @@ function gen_parse_free(FUNC) {
 	body += `
 {
 	if (des && des->json) {
-		cJSON_Delete((cJSON *)des->json);
+		yyjson_doc_free((yyjson_doc *)des->json);
 		des->json = NULL;
 	}
 }\n
@@ -461,36 +474,34 @@ function gen_parse_free(FUNC) {
  * Generate array serial
  */
 function gen_array_serial(item, functype) {
-	if (functype === 'String') {
+	if (functype === 'str') {
 		var value = `des->${item.key}[i] ? des->${item.key}[i] : ""`;
 	} else {
 		var value = `des->${item.key}[i]`;
 	}
 	var serial = `
-	array = cJSON_CreateArray();
+	array = yyjson_mut_arr(doc);
 	if (!array) {
 		goto	error;
 	}
 	for (i = 0; i < ${item.array}; i++) {`;
-	if (functype === 'Object') {
+	if (functype === 'val') {
 		serial += `
-		item = ${item.name}_json_object_stringify(&(${value}));`;
+		item = ${item.name}_json_object_stringify(doc, &(${value}));
+		if (!yyjson_mut_arr_add_val(array, item)) {
+			goto	error;
+		}`;
 	} else {
 		serial += `
-		item = cJSON_Create${functype}(${value});`;
+		if (!yyjson_mut_arr_add_${functype}(doc, array, ${value})) {
+			goto	error;
+		}`;
 	}
 	serial += `
-		if (!item) {
-			cJSON_Delete(array);
-			goto	error;
-		}
-		if (!cJSON_AddItemToArray(array, item)) {
-			cJSON_Delete(item);
-			cJSON_Delete(array);
-			goto	error;
-		}
 	}
-	item = array;`;
+	if (!yyjson_mut_obj_add_val(doc, val, "${item.key}", array)) {
+		goto	error;
+	}\n`;
 	return serial;
 }
 
@@ -498,25 +509,26 @@ function gen_array_serial(item, functype) {
  * Generate item serial
  */
 function gen_item_serial(item, functype) {
-	if (functype === 'String') {
+	if (functype === 'str') {
 		var value = `des->${item.key} ? des->${item.key} : ""`;
 	} else {
 		var value = `des->${item.key}`;
 	}
-	if (functype === 'Object') {
+	if (functype === 'val') {
 		var serial = `
-	item = ${item.name}_json_object_stringify(&(${value}));
+	item = ${item.name}_json_object_stringify(doc, &(${value}));
 	if (!item) {
 		goto	error;
-	}`;
+	}
+	if (!yyjson_mut_obj_add_val(doc, val, "${item.key}", item)) {
+		goto	error;
+	}\n`;
 	} else {
 		var serial = `
-	item = cJSON_Create${functype}(${value});
-	if (!item) {
+	if (!yyjson_mut_obj_add_${functype}(doc, val, "${item.key}", ${value})) {
 		goto	error;
-	}`;
+	}\n`;
 	}
-	
 	return serial;
 }
 
@@ -524,17 +536,7 @@ function gen_item_serial(item, functype) {
  * Generate serial
  */
 function gen_serial(item, functype) {
-	if (item.array) {
-		var serial = gen_array_serial(item, functype);
-	} else {
-		var serial = gen_item_serial(item, functype);
-	}
-	serial += `
-	if (!cJSON_AddItemToObject(json, "${item.key}", item)) {
-		cJSON_Delete(item);
-		goto	error;
-	}\n`;
-	return serial;
+	return item.array ? gen_array_serial(item, functype) : gen_item_serial(item, functype);
 }
 
 /*
@@ -546,27 +548,31 @@ function gen_json_stringify(FUNC) {
 	var serial = '';
 	for (var item of member) {
 		switch (item.type) {
-			case 'bool':
-				serial += gen_serial(item, 'Bool');
-				break;
-			case 'int8_t':
-			case 'int16_t':
-			case 'int32_t':
-			case 'uint8_t':
-			case 'uint16_t':
-			case 'uint32_t':
-			case 'int':
-			case 'long':
-			case 'float':
-			case 'double':
-				serial += gen_serial(item, 'Number');
-				break;
-			case 'char *':
-				serial += gen_serial(item, 'String');
-				break;
-			case 'struct':
-				serial += gen_serial(item, 'Object');
-				break;
+		case 'bool':
+			serial += gen_serial(item, 'bool');
+			break;
+		case 'int':
+		case 'long':
+		case 'int8_t':
+		case 'int16_t':
+		case 'int32_t':
+			serial += gen_serial(item, 'int');
+			break;
+		case 'uint8_t':
+		case 'uint16_t':
+		case 'uint32_t':
+			serial += gen_serial(item, 'uint');
+			break;
+		case 'float':
+		case 'double':
+			serial += gen_serial(item, 'real');
+			break;
+		case 'char *':
+			serial += gen_serial(item, 'str');
+			break;
+		case 'struct':
+			serial += gen_serial(item, 'val');
+			break;
 		}
 	}
 
@@ -574,7 +580,8 @@ function gen_json_stringify(FUNC) {
 {
 	int i;
 	char *string;
-	cJSON *json, *item, *array;
+	yyjson_mut_doc *doc;
+	yyjson_mut_val *val, *item, *array;
 
 	(void)i;
 	(void)item;
@@ -584,17 +591,25 @@ function gen_json_stringify(FUNC) {
 		return	(NULL);
 	}
 
-	json = cJSON_CreateObject();
-	if (!json) {
+	doc = yyjson_mut_doc_new(NULL);
+	if (!doc) {
 		return	(NULL);
 	}
+
+	val = yyjson_mut_obj(doc);
+	if (!val) {
+		yyjson_mut_doc_free(doc);
+		return	(NULL);
+	} else {
+		yyjson_mut_doc_set_root(doc, val);
+	}
 ${serial}
-	string = cJSON_PrintUnformatted(json);
-	cJSON_Delete(json);
+	string = yyjson_mut_write(doc, YYJSON_WRITE_NOFLAG, NULL);
+	yyjson_mut_doc_free(doc);
 	return	(string);
 
 error:
-	cJSON_Delete(json);
+	yyjson_mut_doc_free(doc);
 	return	(NULL);
 }\n
 `;
@@ -610,38 +625,42 @@ function gen_json_object_stringify(struct) {
 	var serial = '';
 	for (var item of member) {
 		switch (item.type) {
-			case 'bool':
-				serial += gen_serial(item, 'Bool');
-				break;
-			case 'int8_t':
-			case 'int16_t':
-			case 'int32_t':
-			case 'uint8_t':
-			case 'uint16_t':
-			case 'uint32_t':
-			case 'int':
-			case 'long':
-			case 'float':
-			case 'double':
-				serial += gen_serial(item, 'Number');
-				break;
-			case 'char *':
-				serial += gen_serial(item, 'String');
-				break;
-			case 'struct':
-				serial += gen_serial(item, 'Object');
-				break;
-			}
+		case 'bool':
+			serial += gen_serial(item, 'bool');
+			break;
+		case 'int':
+		case 'long':
+		case 'int8_t':
+		case 'int16_t':
+		case 'int32_t':
+			serial += gen_serial(item, 'int');
+			break;
+		case 'uint8_t':
+		case 'uint16_t':
+		case 'uint32_t':
+			serial += gen_serial(item, 'uint');
+			break;
+		case 'float':
+		case 'double':
+			serial += gen_serial(item, 'real');
+			break;
+		case 'char *':
+			serial += gen_serial(item, 'str');
+			break;
+		case 'struct':
+			serial += gen_serial(item, 'val');
+			break;
+		}
 	}
 
 	body += `
 /*
  * Serialize the substructure '${struct.name}' into a JSON string
  */
-static cJSON *${struct.name}_json_object_stringify (const struct ${struct.name} *des)
+static yyjson_mut_val *${struct.name}_json_object_stringify (yyjson_mut_doc *doc, const struct ${struct.name} *des)
 {
-	int i;
-	cJSON *json, *item, *array;
+	size_t i;
+	yyjson_mut_val *val, *item, *array;
 
 	(void)i;
 	(void)item;
@@ -651,15 +670,14 @@ static cJSON *${struct.name}_json_object_stringify (const struct ${struct.name} 
 		return	(NULL);
 	}
 
-	json = cJSON_CreateObject();
-	if (!json) {
+	val = yyjson_mut_obj(doc);
+	if (!val) {
 		return	(NULL);
 	}
 ${serial}
-	return	(json);
+	return	(val);
 
 error:
-	cJSON_Delete(json);
 	return	(NULL);
 }\n`;
 	return body;
@@ -673,7 +691,7 @@ function gen_stringify_free(FUNC) {
 	body += `
 {
 	if (str) {
-		cJSON_free(str);
+		free(str);
 	}
 }\n`;
 	return body;
