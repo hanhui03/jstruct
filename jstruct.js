@@ -4,7 +4,7 @@
  *
  * Detailed license information can be found in the LICENSE file.
  *
- * File: jstruct.js JSON <-> C struct tool use cJSON library.
+ * File: jstruct.js JSON <-> C struct tool use yyjson library.
  *
  * Author: Han.hui <hanhui@acoinfo.com>
  *
