@@ -241,7 +241,7 @@ const numfuncs = new Set(['int', 'uint', 'real']);
 function gen_assign(item, target, functype, indentation) {
 	if (numfuncs.has(functype) && 
 		(typeof item.min === 'number' || typeof item.max === 'number')) {
-		var assign = `v = yyjson_get_real(item);
+		var assign = `v = yyjson_get_${functype}(item);
 ${indentation}${gen_range_assign(item, 'v', indentation)}
 ${indentation}${target} = (${item.type})v;`;
 	} else if (functype === 'obj') {
