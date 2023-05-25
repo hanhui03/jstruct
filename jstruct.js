@@ -8,7 +8,7 @@
  *
  * Author: Han.hui <hanhui@acoinfo.com>
  *
- * Version: 1.0.3
+ * Version: 1.0.4
  *
  */
 
@@ -17,7 +17,7 @@ var process = require('process');
 
 /* Supported types include */
 const STRUCT_TYPES = [
-	'bool', 'int8_t', 'int16_t', 'int32_t', 'uint8_t', 'uint16_t', 'uint32_t', 'int', 'long', 'float', 'double', 'char *', 'struct'
+	'bool', 'int8_t', 'int16_t', 'int32_t', 'uint8_t', 'uint16_t', 'uint32_t', 'int', 'long', 'float', 'double', 'char *', 'struct', 'union'
 ];
 
 /* Struct arry */
@@ -78,6 +78,11 @@ const FILE = require('./file');
 const FUNC = require('./func');
 
 /*
+ * Union Parse
+ */
+const UNION = require('./union');
+
+/*
  * Check type
  */
 function check_type(type) {
@@ -120,13 +125,13 @@ function gen_struct_def(struct, structlist, issub) {
 		}
 		interval = item.type.endsWith('*') ? '' : ' ';
 		if (item.array) {
-			if (item.type === 'struct') {
+			if (item.type === 'struct' || item.type === 'union') {
 				body += `\t${item.type}${interval}${item.name}${interval}${item.key}[${item.array}];\n`;
 			} else {
 				body += `\t${item.type}${interval}${item.key}[${item.array}];\n`;
 			}
 		} else {
-			if (item.type === 'struct') {
+			if (item.type === 'struct' || item.type === 'union') {
 				body += `\t${item.type}${interval}${item.name}${interval}${item.key};\n`;
 			} else {
 				body += `\t${item.type}${interval}${item.key};\n`;
@@ -149,7 +154,7 @@ function gen_struct() {
 	return `
 #ifndef STRUCT_${CONF.struct.name.toUpperCase()}_DEFINED
 #define STRUCT_${CONF.struct.name.toUpperCase()}_DEFINED
-${gen_struct_def(CONF.struct, CONF.struct.substruct ? CONF.struct.substruct:'', false)}
+${UNION.gen_union_def(CONF.struct.subunion ? CONF.struct.subunion:'')}${gen_struct_def(CONF.struct, CONF.struct.substruct ? CONF.struct.substruct:'', false)}
 #endif /* STRUCT_${CONF.struct.name.toUpperCase()}_DEFINED */
 `;
 }
@@ -157,8 +162,9 @@ ${gen_struct_def(CONF.struct, CONF.struct.substruct ? CONF.struct.substruct:'', 
 /*
  * Generate function define
  */
-function gen_func_def(structlist) {
+function gen_func_def(structlist, unionlist) {
 	var body = '';
+	body += UNION.gen_union_func_def(unionlist);
 	for (var itemst of structlist) {
 		if (struct_names.indexOf(itemst.name) >= 0) {
 			continue;
@@ -175,7 +181,7 @@ static yyjson_mut_val *${itemst.name}_json_object_stringify(yyjson_mut_doc *, co
  * Generate function
  */
 function gen_sub_func(FUNC) {
-	var defs = gen_func_def(CONF.struct.substruct ? CONF.struct.substruct:'');
+	var defs = gen_func_def(CONF.struct.substruct ? CONF.struct.substruct:'', CONF.struct.subunion ? CONF.struct.subunion:'');
 	return defs ? `${FUNC.FUNCTION_OBJECT_DECLARATION}\n${defs}\n` : '';
 }
 
@@ -356,6 +362,7 @@ function gen_json_parse(FUNC) {
 			deserial += gen_deserial(item, 'str');
 			break;
 		case 'struct':
+		case 'union':
 			deserial += gen_deserial(item, 'obj');
 			break;
 		}
@@ -422,6 +429,7 @@ function gen_json_object_parse(struct) {
 			deserial += gen_deserial(item, 'str');
 			break;
 		case 'struct':
+		case 'union':
 			deserial += gen_deserial(item, 'obj');
 			break;
 		}
@@ -571,6 +579,7 @@ function gen_json_stringify(FUNC) {
 			serial += gen_serial(item, 'str');
 			break;
 		case 'struct':
+		case 'union':
 			serial += gen_serial(item, 'val');
 			break;
 		}
@@ -648,6 +657,7 @@ function gen_json_object_stringify(struct) {
 			serial += gen_serial(item, 'str');
 			break;
 		case 'struct':
+		case 'union':
 			serial += gen_serial(item, 'val');
 			break;
 		}
@@ -708,6 +718,9 @@ function c_merge(FILE, FUNC) {
 	body += gen_parse_free(FUNC);
 	body += gen_json_stringify(FUNC);
 	body += gen_stringify_free(FUNC);
+	if (CONF.struct.hasOwnProperty("subunion")) {
+		body += UNION.gen_union_json_object(CONF.struct.subunion);
+	}
 	if (CONF.struct.hasOwnProperty("substruct")) {
 		for (var itemst of CONF.struct.substruct) {
 			if (struct_names.indexOf(itemst.name) >= 0) {
