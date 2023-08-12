@@ -233,7 +233,7 @@ function gen_array_min_len_check(item) {
 }
 
 /* Number functype */
-const numfuncs = new Set(['int', 'uint', 'real']);
+const numfuncs = new Set(['int', 'uint', 'num']);
 
 /*
  * Generate assign
@@ -350,7 +350,7 @@ function gen_json_parse(FUNC) {
 			break;
 		case 'float':
 		case 'double':
-			deserial += gen_deserial(item, 'real');
+			deserial += gen_deserial(item, 'num');
 			break;
 		case 'char *':
 			deserial += gen_deserial(item, 'str');
@@ -416,7 +416,7 @@ function gen_json_object_parse(struct) {
 			break;
 		case 'float':
 		case 'double':
-			deserial += gen_deserial(item, 'real');
+			deserial += gen_deserial(item, 'num');
 			break;
 		case 'char *':
 			deserial += gen_deserial(item, 'str');
