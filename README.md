@@ -104,6 +104,11 @@ The name of this module, the generated C file and the corresponding H file are r
 
 **This field is required**.
 
+## platform
++ *{String}*
+
+If used in AUTO-SAR CP environment, you need to join this member: `platform: 'autosar'`.
+
 ## struct
 + *{Object}*
 

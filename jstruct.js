@@ -691,7 +691,7 @@ function gen_stringify_free(FUNC) {
 	body += `
 {
 	if (str) {
-		free(str);
+		${CONF.platform === 'autosar' ? 'vsoa_mem_free' : 'free'}(str);
 	}
 }\n`;
 	return body;

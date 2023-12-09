@@ -33,8 +33,8 @@ exports.C_HEADER =
 *
 */
 
-#include <stdlib.h>
 #include <string.h>
+#include ${CONF.platform === 'autosar' ? '"vsoa.h"' : '<stdlib.h>'}
 #include "yyjson.h"
 #include "${CONF.name}_jstruct.h"
 
