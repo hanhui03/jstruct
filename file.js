@@ -75,6 +75,10 @@ exports.H_HEADER =
 #include <stddef.h>
 #include <stdint.h>
 #include <stdbool.h>
+
+#ifdef __linux__
+#include<sys/types.h>
+#endif
 `;
 
 /*
